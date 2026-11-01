@@ -33,6 +33,7 @@ pub mod startup;
 mod typing;
 mod weather;
 mod webview;
+mod yandex_music;
 mod youtube;
 mod youtube_music;
 
@@ -247,6 +248,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
         log!("the cab is drawn on {}", graphics::name_of(luid, &adapters).unwrap_or_default());
     }
     let webview = OffscreenWebView::new(&stage, config.width, config.height, &config.data_dir.join("webview2"))?;
+    webview.enable_yandex_music_frames()?;
     stage.add(&webview, true)?;
     startup::mark("host: cabin browser (WebView2) ready");
     match &config.content {

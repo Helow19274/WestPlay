@@ -11,6 +11,7 @@ import { SpotifyApp } from './spotify/SpotifyApp'
 import { YouTubeMusicApp } from './youtubeMusic/YouTubeMusicApp'
 import { WeatherApp } from './weather/WeatherApp'
 import { YouTubeApp } from './youtube/YouTubeApp'
+import { YandexMusicApp } from './yandexMusic/YandexMusicApp'
 import './apps.css'
 
 /**
@@ -83,6 +84,8 @@ function AppContent({ app }: { app: AppId }) {
       return <SpotifyApp />
     case 'youtubeMusic':
       return <YouTubeMusicApp />
+    case 'yandexMusic':
+      return <YandexMusicApp />
     case 'settings':
       return <SettingsApp />
     case 'weather':
