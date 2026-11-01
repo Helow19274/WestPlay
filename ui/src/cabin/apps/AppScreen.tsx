@@ -11,7 +11,7 @@ import { SpotifyApp } from './spotify/SpotifyApp'
 import { YouTubeMusicApp } from './youtubeMusic/YouTubeMusicApp'
 import { WeatherApp } from './weather/WeatherApp'
 import { YouTubeApp } from './youtube/YouTubeApp'
-import { YandexMusicApp } from './yandexMusic/YandexMusicApp'
+import { WEB_APPS, type WebAppId } from '../../shared/webApps'
 import './apps.css'
 import { BrowserApp } from './browser/BrowserApp'
 
@@ -70,6 +70,7 @@ export function AppScreen({ app }: { app: AppId }) {
 
 function AppContent({ app }: { app: AppId }) {
   const text = useText()
+  if (Object.hasOwn(WEB_APPS, app)) return <BrowserApp key={app} id={app as WebAppId} />
   switch (app) {
     case 'browser':
       return <BrowserApp />
@@ -87,8 +88,6 @@ function AppContent({ app }: { app: AppId }) {
       return <SpotifyApp />
     case 'youtubeMusic':
       return <YouTubeMusicApp />
-    case 'yandexMusic':
-      return <YandexMusicApp />
     case 'settings':
       return <SettingsApp />
     case 'weather':

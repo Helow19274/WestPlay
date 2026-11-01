@@ -327,11 +327,6 @@ impl OffscreenWebView {
         Ok(Self { environment, root, host, composition, controller, webview, page_messages, failure, version })
     }
 
-    /// Allows the full Yandex Music site to be embedded by the trusted cabin page.
-    pub fn enable_yandex_music_frames(&self) -> windows::core::Result<()> {
-        crate::yandex_music::install(&self.webview)
-    }
-
     /// The worst WebView2 process failure since the last call, if any.
     pub fn take_failure(&self) -> Option<Failure> {
         self.failure.take()

@@ -34,7 +34,6 @@ pub mod startup;
 mod typing;
 mod weather;
 mod webview;
-mod yandex_music;
 mod youtube;
 mod youtube_music;
 
@@ -249,7 +248,6 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
         log!("the cab is drawn on {}", graphics::name_of(luid, &adapters).unwrap_or_default());
     }
     let webview = OffscreenWebView::new(&stage, config.width, config.height, &config.data_dir.join("webview2"))?;
-    webview.enable_yandex_music_frames()?;
     stage.add(&webview, true)?;
     startup::mark("host: cabin browser (WebView2) ready");
     match &config.content {
@@ -313,7 +311,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     // The page's height (`westplay_shared::page_height`): the frame's until a screen asks for another.
     let mut page_height = config.height;
     let mut pointer = Pointer::new(config.width, config.height);
-    let mut site_browser: Option<site_browser::Browser> = None;
+    let mut site_browsers = std::collections::HashMap::<site_browser::BrowserId, site_browser::Browser>::new();
     // The screen's cursor, drawn into the frames the game takes (cursor.rs), and whether the page was last told the
     // host draws it (`None`: not told since it loaded).
     let mut cursor = cursor::Cursor::new(Instant::now());
@@ -656,7 +654,11 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             }
             let _ = webview.post_json(&settings_message(&config.settings.get()));
         }
-        let mouse = pointer.update(&bridge.bridge().plugin.pointer, &webview, site_browser.as_mut());
+        let mouse = pointer.update(
+            &bridge.bridge().plugin.pointer,
+            &webview,
+            site_browsers.values_mut().find(|browser| browser.area.is_some()),
+        );
         cursor.follow(mouse, Instant::now());
         // The player's keybinds pressed in the game: the page acts on each.
         for keybind in Keybind::ALL {
@@ -742,23 +744,32 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
 
         for message in webview.take_page_messages() {
             match parse_page_message(&message) {
-                Some(PageMessage::Browser { command }) => {
+                Some(PageMessage::Browser { id, command }) => {
                     if matches!(command, site_browser::Command::Close) {
-                        if let Some(browser) = site_browser.take() {
+                        if let Some(browser) = site_browsers.remove(&id) {
                             let _ = stage.remove(&browser.view);
                         }
                         continue;
                     }
-                    if site_browser.is_none() && !matches!(command, site_browser::Command::Hide) {
-                        match site_browser::Browser::new(&stage, &config.data_dir.join("site-browser")) {
-                            Ok(browser) => site_browser = Some(browser),
+                    if !site_browsers.contains_key(&id) && !matches!(command, site_browser::Command::Hide) {
+                        match site_browser::Browser::new(&stage, &config.data_dir.join(id.profile())) {
+                            Ok(browser) => {
+                                site_browsers.insert(id, browser);
+                            }
                             Err(error) => {
                                 log!("[site browser] could not start: {error}");
-                                let _ = webview.post_json(r#"{"type":"browserState","url":"","title":"","loading":false,"back":false,"forward":false,"error":"Could not start the browser. Close and reopen it to retry."}"#);
+                                let _ = webview.post_json(&serde_json::json!({"type":"browserState","id":id,"url":"","title":"","loading":false,"back":false,"forward":false,"error":"Could not start the browser. Close and reopen it to retry."}).to_string());
                             }
                         }
                     }
-                    if let Some(browser) = &mut site_browser {
+                    if matches!(command, site_browser::Command::Show { .. }) {
+                        for (other_id, browser) in &mut site_browsers {
+                            if *other_id != id {
+                                let _ = browser.command(site_browser::Command::Hide, &stage);
+                            }
+                        }
+                    }
+                    if let Some(browser) = site_browsers.get_mut(&id) {
                         if let Err(error) = browser.command(command, &stage) {
                             log!("[site browser] command failed: {error}");
                         }
@@ -1408,8 +1419,8 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             }
         }
 
-        if let Some(browser) = &mut site_browser {
-            browser.tick(&webview);
+        for (id, browser) in &mut site_browsers {
+            browser.tick(&webview, *id);
         }
 
         // What the player typed on their own keyboard, and whether it types (the plugin decides: the truck
@@ -2010,7 +2021,11 @@ fn customize_list_message(customizations: &customize::Customizations) -> String 
 #[derive(Debug, PartialEq, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum PageMessage {
-    Browser { command: site_browser::Command },
+    Browser {
+        #[serde(default)]
+        id: site_browser::BrowserId,
+        command: site_browser::Command,
+    },
     /// Posted when the page (re)loads.
     Ready,
     /// A startup stage the page reached (the boot screens shown), for the startup log (`startup`).

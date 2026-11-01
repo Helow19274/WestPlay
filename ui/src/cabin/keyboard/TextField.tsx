@@ -21,6 +21,8 @@ interface TextFieldProps {
   icon?: ReactNode
   /** Selected as it appears, the keyboard coming up with it. */
   selectOnShow?: boolean
+  /** Display a value without attaching the cabin keyboard or allowing edits. */
+  readOnly?: boolean
 }
 
 /**
@@ -38,6 +40,7 @@ export function TextField({
   label,
   icon,
   selectOnShow = false,
+  readOnly = false,
 }: TextFieldProps) {
   const text = useText()
   const typing = useKeyboard((state) => state.field?.id === id)
@@ -64,12 +67,14 @@ export function TextField({
     }),
     [id, returnKind],
   )
-  const select = () => useKeyboard.getState().attach(field, language)
+  const select = () => {
+    if (!readOnly) useKeyboard.getState().attach(field, language)
+  }
 
   useEffect(() => {
-    if (selectOnShow) useKeyboard.getState().attach(field, language)
+    if (selectOnShow && !readOnly) useKeyboard.getState().attach(field, language)
     return () => useKeyboard.getState().detach(field.id)
-  }, [field, selectOnShow, language])
+  }, [field, selectOnShow, language, readOnly])
 
   // A long text shows its end, where the typing is.
   const shown = useRef<HTMLSpanElement>(null)
@@ -82,6 +87,7 @@ export function TextField({
       className={typing ? 'text-field typing' : 'text-field'}
       role="textbox"
       aria-label={label}
+      aria-readonly={readOnly}
       onPointerDown={(event) => {
         if (event.button === 0) select()
       }}
@@ -92,7 +98,7 @@ export function TextField({
         {typing && <span className="text-field-caret" aria-hidden />}
         {!value && <span className="text-field-hint">{hint}</span>}
       </span>
-      {value && (
+      {value && !readOnly && (
         <button
           type="button"
           tabIndex={-1}

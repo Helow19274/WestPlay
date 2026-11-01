@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { WEB_APPS, type BrowserId } from '../../../shared/webApps'
 import {
   isInHost,
   postToHost,
@@ -16,6 +17,7 @@ import './browser.css'
 type BrowserState = Extract<HostMessage, { type: 'browserState' }>
 const INITIAL: BrowserState = {
   type: 'browserState',
+  id: 'browser',
   url: '',
   title: '',
   loading: false,
@@ -24,10 +26,16 @@ const INITIAL: BrowserState = {
   error: null,
 }
 const STORAGE = 'westplay.browser.url'
-let current = INITIAL
-let started = false
-let currentZoom = 1
-const command = (command: BrowserCommand) => postToHost({ type: 'browser', command })
+type Session = { current: BrowserState; started: boolean; zoom: number }
+const sessions = new Map<BrowserId, Session>()
+function sessionFor(id: BrowserId): Session {
+  let session = sessions.get(id)
+  if (!session) {
+    session = { current: { ...INITIAL, id }, started: false, zoom: 1 }
+    sessions.set(id, session)
+  }
+  return session
+}
 function savedAddress() {
   try {
     return localStorage.getItem(STORAGE) || 'https://www.google.com/'
@@ -37,33 +45,36 @@ function savedAddress() {
 }
 
 /** The browser surface is a separate native WebView. This page owns only its controls. */
-export function BrowserApp() {
+export function BrowserApp({ id = 'browser' }: { id?: BrowserId }) {
+  const preset = id === 'browser' ? undefined : WEB_APPS[id]
+  const session = sessionFor(id)
+  const command = useCallback((command: BrowserCommand) => postToHost({ type: 'browser', id, command }), [id])
   const language = useLanguage()
   const tr = language === 'tr'
-  const [state, setState] = useState(current)
-  const [address, setAddress] = useState(current.url || savedAddress())
-  const [zoom, setZoom] = useState(currentZoom)
+  const [state, setState] = useState(session.current)
+  const [address, setAddress] = useState(session.current.url || preset?.url || savedAddress())
+  const [zoom, setZoom] = useState(session.zoom)
   const [generation, setGeneration] = useState(0)
   const area = useRef<HTMLDivElement>(null)
   const handedOver = useCabin((state) => state.truckScreen)
-  const remoteId = 'browser-page'
+  const remoteId = `browser-page:${id}`
 
   useEffect(
     () =>
       subscribeHostMessages((message) => {
-        if (message.type === 'browserState') {
-          current = message
+        if (message.type === 'browserState' && message.id === id) {
+          session.current = message
           setState(message)
           if (message.url) {
             if (useKeyboard.getState().field?.id !== 'browser-address') setAddress(message.url)
             try {
-              localStorage.setItem(STORAGE, message.url)
+              if (!preset) localStorage.setItem(STORAGE, message.url)
             } catch {
               /* Storage may be unavailable. */
             }
           }
         }
-        if (message.type === 'browserFocus' && !handedOver) {
+        if (message.type === 'browserFocus' && message.id === id && !handedOver) {
           if (message.editable) {
             useKeyboard.getState().attach(
               {
@@ -79,7 +90,7 @@ export function BrowserApp() {
           } else useKeyboard.getState().detach(remoteId)
         }
       }),
-    [language, handedOver],
+    [language, handedOver, id, session, preset, command, remoteId],
   )
 
   useEffect(() => {
@@ -90,9 +101,9 @@ export function BrowserApp() {
     // Native surfaces cannot participate in the DOM's opening animation.
     whenTransitionEnds(() => {
       if (gone) return
-      if (!started) {
-        started = true
-        command({ action: 'navigate', url: current.url || savedAddress() })
+      if (!session.started) {
+        session.started = true
+        command({ action: 'navigate', url: preset?.url || session.current.url || savedAddress() })
       }
       const place = () => {
         if (gone) return
@@ -127,21 +138,21 @@ export function BrowserApp() {
       command({ action: 'hide' })
       useKeyboard.getState().detach(remoteId)
     }
-  }, [handedOver, generation])
+  }, [handedOver, generation, session, preset, command, remoteId])
 
   const navigate = () => {
     useKeyboard.getState().detach('browser-address')
     useKeyboard.getState().detach(remoteId)
-    command({ action: 'navigate', url: address })
+    command({ action: 'navigate', url: preset?.url || address })
   }
   const changeZoom = (delta: number) => {
     const factor = Math.max(0.5, Math.min(2, Math.round((zoom + delta) * 10) / 10))
     setZoom(factor)
-    currentZoom = factor
+    session.zoom = factor
     command({ action: 'zoom', factor })
   }
   return (
-    <section className="app-panel browser-app" aria-label={tr ? 'Tarayıcı' : 'Browser'}>
+    <section className="app-panel browser-app" aria-label={preset?.name || (tr ? 'Tarayıcı' : 'Browser')}>
       <div className="browser-toolbar">
         <button aria-label={tr ? 'Geri' : 'Back'} disabled={!state.back} onClick={() => command({ action: 'back' })}>
           ←
@@ -167,8 +178,9 @@ export function BrowserApp() {
           returnKind="go"
           hint="https://…"
           label={tr ? 'Web adresi' : 'Website address'}
+          readOnly={!!preset}
         />
-        <button onClick={navigate}>{tr ? 'Git' : 'Go'}</button>
+        <button onClick={navigate}>{preset ? (tr ? 'Başlangıç' : 'Start page') : tr ? 'Git' : 'Go'}</button>
       </div>
       <div className="browser-info">
         <span title={state.url}>
@@ -184,8 +196,8 @@ export function BrowserApp() {
         <button
           onClick={() => {
             command({ action: 'close' })
-            started = false
-            currentZoom = 1
+            session.started = false
+            session.zoom = 1
             setZoom(1)
             setGeneration((value) => value + 1)
           }}

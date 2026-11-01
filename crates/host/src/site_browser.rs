@@ -17,6 +17,24 @@ use windows::core::BOOL;
 use windows::core::Interface;
 use windows::core::{HSTRING, PWSTR};
 
+/// Stable identities also used by the cabin's fixed web-app registry.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BrowserId {
+    #[default]
+    Browser,
+    YandexMusic,
+}
+
+impl BrowserId {
+    pub fn profile(self) -> &'static str {
+        match self {
+            Self::Browser => "site-browser",
+            Self::YandexMusic => "site-yandex-music",
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Deserialize)]
 #[serde(tag = "action", rename_all = "camelCase")]
 pub enum Command {
@@ -210,7 +228,12 @@ impl Browser {
                 self.view.set_muted(false)?;
                 self.area = Some((x, y, width, height));
             }
-            Command::Hide | Command::Close => {
+            Command::Hide => {
+                // Hide only the composition visual. Keep the page and its audio running in the background.
+                self.area = None;
+                self.view.show(false)?;
+            }
+            Command::Close => {
                 self.area = None;
                 self.view.show(false)?;
                 self.view.set_muted(true)?;
@@ -288,10 +311,11 @@ impl Browser {
         }
     }
 
-    pub fn tick(&mut self, cabin: &OffscreenWebView) {
+    pub fn tick(&mut self, cabin: &OffscreenWebView, id: BrowserId) {
         if let Some(editable) = self.focus.borrow_mut().take() {
             let _ = cabin.post_json(
-                &serde_json::json!({"type":"browserFocus","editable":editable && self.area.is_some()}).to_string(),
+                &serde_json::json!({"type":"browserFocus","id":id,"editable":editable && self.area.is_some()})
+                    .to_string(),
             );
         }
         if self.last_poll.elapsed() < Duration::from_millis(200) {
@@ -334,6 +358,7 @@ impl Browser {
         }
         let mut value = serde_json::to_value(&*self.state.borrow()).unwrap_or_default();
         value["type"] = "browserState".into();
+        value["id"] = serde_json::to_value(id).unwrap();
         let message = value.to_string();
         if message != self.sent {
             let _ = cabin.post_json(&message);
@@ -384,6 +409,46 @@ mod tests {
         view.evaluate("document.querySelector('button.app[data-app=browser]').click()").unwrap();
         pump();
         view.capture_png(&std::env::temp_dir().join("browser-preview.png")).unwrap();
+        assert_eq!(
+            view.evaluate("document.querySelector('.browser-toolbar [role=textbox]').getAttribute('aria-readonly')")
+                .unwrap(),
+            "\"false\""
+        );
+        view.evaluate("document.querySelector('.home-button').click()").unwrap();
+        pump();
+        view.evaluate("document.querySelector('button.app[data-app=yandexMusic]').click()").unwrap();
+        pump();
+        assert_eq!(
+            view.evaluate("document.querySelector('.browser-toolbar [role=textbox]').getAttribute('aria-readonly')")
+                .unwrap(),
+            "\"true\""
+        );
+        assert_eq!(
+            view.evaluate("document.querySelector('.browser-toolbar [role=textbox]').textContent").unwrap(),
+            "\"https://music.yandex.ru/\""
+        );
+        assert_eq!(
+            view.evaluate(
+                "document.querySelectorAll('.browser-app iframe, .browser-toolbar .text-field-clear').length"
+            )
+            .unwrap(),
+            "0"
+        );
+        view.evaluate("document.querySelector('.browser-toolbar [role=textbox]').dispatchEvent(new PointerEvent('pointerdown', {bubbles:true, button:0}))").unwrap();
+        pump();
+        assert_eq!(view.evaluate("!!document.querySelector('.keyboard.shown')").unwrap(), "false");
+        for (id, url) in
+            [(BrowserId::Browser, "https://example.org/"), (BrowserId::YandexMusic, "https://music.yandex.ru/album/1")]
+        {
+            view.post_json(&serde_json::json!({"type":"browserState","id":id,"url":url,"title":"Test","loading":false,"back":false,"forward":false,"error":null}).to_string()).unwrap();
+            pump();
+            let expected = if id == BrowserId::Browser { "https://music.yandex.ru/" } else { url };
+            assert_eq!(
+                view.evaluate("document.querySelector('.browser-toolbar [role=textbox]').textContent").unwrap(),
+                serde_json::to_string(expected).unwrap()
+            );
+        }
+        assert_eq!(view.evaluate("window.__errors").unwrap(), "[]");
         println!(
             "browser preview: {}",
             view.evaluate("({errors:window.__errors,url:location.href, text:document.body.innerText.slice(0,600)})")
@@ -544,7 +609,56 @@ mod tests {
         pump(200);
         assert_eq!(browser.view.evaluate("document.title").unwrap(), "\"Second\"");
         browser.command(Command::Zoom { factor: 1.2 }, &stage).unwrap();
-        browser.command(Command::Hide, &stage).unwrap();
-        assert!(browser.area.is_none());
+        let mut other = Browser::new(&stage, &profile.join("other")).unwrap();
+        other.command(Command::Navigate { url: format!("http://127.0.0.1:{port}/") }, &stage).unwrap();
+        pump(1000);
+        assert_eq!(other.view.evaluate("document.cookie").unwrap(), "\"\"");
+        other.view.evaluate("document.cookie='otherBrowser=kept;path=/'").unwrap();
+        // Play a silent PCM WAV through the real media pipeline, without external sites or audible test noise.
+        browser
+            .view
+            .evaluate(
+                r#"(() => {
+            const wav = new ArrayBuffer(44 + 8000 * 30);
+            const header = new DataView(wav);
+            const bytes = new Uint8Array(wav);
+            const text = (offset, value) => [...value].forEach((c, i) => bytes[offset + i] = c.charCodeAt(0));
+            text(0, 'RIFF'); header.setUint32(4, wav.byteLength - 8, true); text(8, 'WAVE');
+            text(12, 'fmt '); header.setUint32(16, 16, true); header.setUint16(20, 1, true);
+            header.setUint16(22, 1, true); header.setUint32(24, 8000, true); header.setUint32(28, 8000, true);
+            header.setUint16(32, 1, true); header.setUint16(34, 8, true);
+            text(36, 'data'); header.setUint32(40, wav.byteLength - 44, true); bytes.fill(128, 44);
+            window.testAudio = new Audio(URL.createObjectURL(new Blob([wav], {type: 'audio/wav'})));
+            testAudio.play();
+        })()"#,
+            )
+            .unwrap();
+        pump(500);
+        for _ in 0..2 {
+            assert_eq!(browser.view.evaluate("!testAudio.paused && testAudio.currentTime > 0").unwrap(), "true");
+            browser.view.evaluate("window.beforeHide = testAudio.currentTime").unwrap();
+            browser.command(Command::Hide, &stage).unwrap();
+            assert!(browser.area.is_none());
+            other.command(Command::Show { x: 0.0, y: 0.0, width: 800, height: 600 }, &stage).unwrap();
+            assert_eq!(other.view.evaluate("document.title").unwrap(), "\"Fixture\"");
+            pump(500);
+            let mut muted = BOOL::default();
+            // SAFETY: the browser's control is alive on this test's STA thread; `muted` is an output value.
+            unsafe {
+                use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_8;
+                browser.view.core().cast::<ICoreWebView2_8>().unwrap().IsMuted(&mut muted).unwrap();
+            }
+            assert!(!muted.as_bool(), "hiding the browser must not mute background playback");
+            assert_eq!(
+                browser.view.evaluate("!testAudio.paused && testAudio.currentTime > beforeHide + 0.2").unwrap(),
+                "true"
+            );
+            other.command(Command::Hide, &stage).unwrap();
+            browser.command(Command::Show { x: 0.0, y: 0.0, width: 800, height: 600 }, &stage).unwrap();
+            assert!(browser.area.is_some());
+            assert_eq!(browser.view.evaluate("document.title").unwrap(), "\"Second\"");
+            assert!(!browser.view.evaluate("document.cookie").unwrap().contains("otherBrowser"));
+        }
+        browser.view.evaluate("testAudio.pause(); URL.revokeObjectURL(testAudio.src)").unwrap();
     }
 }

@@ -1,4 +1,5 @@
 import type { CustomWallpaper, IconSet } from './customize'
+import type { BrowserId } from './webApps'
 
 /**
  * Messages from the WestPlay host to the cabin page (WebView2 web messages). Mirrors the Rust side:
@@ -92,6 +93,7 @@ export type KeybindAction = 'volumeUp' | 'volumeDown' | 'playPause'
 export type HostMessage =
   | {
       type: 'browserState'
+      id: BrowserId
       url: string
       title: string
       loading: boolean
@@ -99,7 +101,7 @@ export type HostMessage =
       forward: boolean
       error: string | null
     }
-  | { type: 'browserFocus'; editable: boolean }
+  | { type: 'browserFocus'; id: BrowserId; editable: boolean }
   | { type: 'telemetry'; data: Telemetry }
   | { type: 'truck'; data: TruckInfo }
   | { type: 'job'; data: JobInfo }
@@ -275,7 +277,7 @@ export function toEqualizer(value: unknown): Equalizer {
 }
 
 export type PageMessage =
-  | { type: 'browser'; command: BrowserCommand }
+  | { type: 'browser'; id: BrowserId; command: BrowserCommand }
   | { type: 'ready' }
   /** A startup stage reached (the boot screens shown), for the host's startup log. */
   | { type: 'startup'; stage: string }
