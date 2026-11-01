@@ -54,6 +54,12 @@ jobs:
       - name: Install UI dependencies
         run: npm ci --prefix ui
 
+      - name: Run UI tests
+        run: npm test --prefix ui
+
+      - name: Run Rust tests
+        run: cargo test --locked --workspace
+
       - name: Build game plugin
         run: cargo build --locked --release -p westplay-plugin
 
