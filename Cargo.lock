@@ -4466,6 +4466,7 @@ dependencies = [
  "image",
  "serde",
  "serde_json",
+ "url",
  "webview2-com",
  "westplay-mapdata",
  "westplay-setup",

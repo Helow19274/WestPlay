@@ -64,6 +64,7 @@ pub struct Pointer {
     last_movement: Option<Instant>,
     /// While a button is held and the mouse hasn't dragged yet: how far it has travelled.
     slop_travel: Option<f32>,
+    site_target: bool,
 }
 
 impl Pointer {
@@ -80,6 +81,7 @@ impl Pointer {
             buttons: 0,
             last_movement: None,
             slop_travel: None,
+            site_target: false,
         }
     }
 
@@ -99,7 +101,12 @@ impl Pointer {
 
     /// Takes the pointer input the plugin collected since the last call and sends it to the page. Returns the
     /// mouse as it is now, for the cursor drawn.
-    pub fn update(&mut self, block: &PointerBlock, webview: &OffscreenWebView) -> Mouse {
+    pub fn update(
+        &mut self,
+        block: &PointerBlock,
+        webview: &OffscreenWebView,
+        mut browser: Option<&mut crate::site_browser::Browser>,
+    ) -> Mouse {
         let active = block.active.load(Ordering::Acquire) == 1;
         let input = Input {
             active,
@@ -109,9 +116,30 @@ impl Pointer {
             buttons: if active { block.buttons.load(Ordering::Acquire) } else { 0 },
         };
         let buttons = self.buttons;
-        for (kind, data) in self.step(input, Instant::now()) {
-            let point = POINT { x: self.x as i32, y: self.y as i32 };
-            let _ = webview.send_mouse(kind, self.virtual_keys(), data, point);
+        let events = self.step(input, Instant::now());
+        let area = browser.as_ref().and_then(|b| b.area);
+        let hit = area
+            .is_some_and(|(x, y, w, h)| self.x >= x && self.y >= y && self.x < x + w as f32 && self.y < y + h as f32);
+        let site = area.is_some() && if buttons != 0 { self.site_target } else { hit };
+        if site != self.site_target {
+            let old = if self.site_target { browser.as_ref().map(|b| &b.view).unwrap_or(webview) } else { webview };
+            let _ = old.send_mouse(COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE, self.virtual_keys(), 0, POINT::default());
+        }
+        self.site_target = site;
+        for (kind, data) in events {
+            let (target, x, y) = if site {
+                let (x, y, _, _) = area.unwrap();
+                if kind == COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP {
+                    if let Some(b) = browser.as_mut() {
+                        b.check_focus = true;
+                    }
+                }
+                (&browser.as_ref().unwrap().view, self.x - x, self.y - y)
+            } else {
+                (webview, self.x, self.y)
+            };
+            let point = POINT { x: x as i32, y: y as i32 };
+            let _ = target.send_mouse(kind, self.virtual_keys(), data, point);
         }
         Mouse {
             active: self.active,

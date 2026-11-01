@@ -13,8 +13,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use westplay_shared::{TypedKey, TypingState};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyboardLayout, GetKeyboardState, ToUnicodeEx, VK_APPS, VK_BACK, VK_CONTROL, VK_ESCAPE, VK_F1, VK_F24, VK_LWIN,
-    VK_MENU, VK_RETURN, VK_RWIN, VK_SNAPSHOT,
+    GetKeyboardLayout, GetKeyboardState, ToUnicodeEx, VK_APPS, VK_BACK, VK_CONTROL, VK_DELETE, VK_END, VK_ESCAPE,
+    VK_F1, VK_F24, VK_HOME, VK_LEFT, VK_LWIN, VK_MENU, VK_RETURN, VK_RIGHT, VK_RWIN, VK_SNAPSHOT, VK_TAB,
 };
 
 use crate::{bridge, log};
@@ -139,6 +139,13 @@ fn key_meaning(key: u32, ctrl: bool) -> Option<Option<TypedKey>> {
         k if k == VK_RETURN.0 as u32 => Some(Some(TypedKey::Enter)),
         k if k == VK_ESCAPE.0 as u32 => Some(Some(TypedKey::Escape)),
         k if k == u32::from(b'V') && ctrl => Some(Some(TypedKey::Paste)),
+        k if k == u32::from(b'A') && ctrl => Some(Some(TypedKey::SelectAll)),
+        k if k == VK_TAB.0 as u32 => Some(Some(TypedKey::Tab)),
+        k if k == VK_DELETE.0 as u32 => Some(Some(TypedKey::Delete)),
+        k if k == VK_LEFT.0 as u32 => Some(Some(TypedKey::Left)),
+        k if k == VK_RIGHT.0 as u32 => Some(Some(TypedKey::Right)),
+        k if k == VK_HOME.0 as u32 => Some(Some(TypedKey::Home)),
+        k if k == VK_END.0 as u32 => Some(Some(TypedKey::End)),
         _ if ctrl => Some(None),
         _ => None,
     }
@@ -179,6 +186,9 @@ mod tests {
         assert_eq!(key_meaning(VK_RETURN.0 as u32, false), Some(Some(TypedKey::Enter)));
         assert_eq!(key_meaning(VK_ESCAPE.0 as u32, false), Some(Some(TypedKey::Escape)));
         assert_eq!(key_meaning(u32::from(b'V'), true), Some(Some(TypedKey::Paste)));
+        assert_eq!(key_meaning(u32::from(b'A'), true), Some(Some(TypedKey::SelectAll)));
+        assert_eq!(key_meaning(VK_TAB.0 as u32, false), Some(Some(TypedKey::Tab)));
+        assert_eq!(key_meaning(VK_LEFT.0 as u32, false), Some(Some(TypedKey::Left)));
         // A letter is the layout's; with Ctrl, nothing.
         assert_eq!(key_meaning(u32::from(b'V'), false), None);
         assert_eq!(key_meaning(u32::from(b'C'), true), Some(None));

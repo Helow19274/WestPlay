@@ -11,6 +11,8 @@ export interface Typing {
   read(): string
   write(text: string): void
   submit(): void
+  /** Remote fields receive editing events without reading their contents (including passwords). */
+  send?(event: TypedEvent): void
 }
 
 interface KeyboardStore {
@@ -62,19 +64,27 @@ export const useKeyboard = create<KeyboardStore>()((set, get) => ({
     if (!field) return
     const before = field.read()
     const outcome = press(keys, before, key, at)
-    const away = outcome.hide || outcome.submit
+    const away = outcome.hide || (outcome.submit && !field.send)
     set({
       keys: outcome.state,
       chosen: key.kind === 'globe' ? outcome.state.language : get().chosen,
       field: away ? null : field,
       selection: away ? 0 : get().selection,
     })
-    if (outcome.text !== before) field.write(outcome.text)
+    if (field.send) {
+      if (key.kind === 'delete') field.send({ key: 'backspace' })
+      else if (outcome.text !== before) field.send({ text: outcome.text })
+    } else if (outcome.text !== before) field.write(outcome.text)
     if (outcome.submit) field.submit()
   },
   typed: (event) => {
     const { field, flash } = get()
     if (!field) return
+    if (field.send) {
+      field.send(event)
+      if ('key' in event && event.key === 'escape') get().detach(field.id)
+      return
+    }
     if ('text' in event) {
       field.write(field.read() + event.text)
       set({ flash: { char: event.text.slice(-1), id: (flash?.id ?? 0) + 1 } })

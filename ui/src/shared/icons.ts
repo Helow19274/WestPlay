@@ -7,10 +7,22 @@
  * light look, on WestPlay's dark card in the dark look).
  */
 export type AppIconRole =
-  'maps' | 'music' | 'spotify' | 'podcasts' | 'messages' | 'phone' | 'settings' | 'weather' | 'youtube' | 'youtubeMusic' | 'yandexMusic'
+  | 'browser'
+  | 'maps'
+  | 'music'
+  | 'spotify'
+  | 'podcasts'
+  | 'messages'
+  | 'phone'
+  | 'settings'
+  | 'weather'
+  | 'youtube'
+  | 'youtubeMusic'
+  | 'yandexMusic'
 
 /** Each role's files' name. */
 const FILES: Record<AppIconRole, string> = {
+  browser: 'browser',
   maps: 'maps',
   music: 'music',
   spotify: 'spotify',

@@ -27,6 +27,7 @@ pub mod route;
 mod route_change;
 pub mod settings;
 mod signin;
+mod site_browser;
 pub mod speakers;
 mod spotify;
 pub mod startup;
@@ -312,6 +313,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     // The page's height (`westplay_shared::page_height`): the frame's until a screen asks for another.
     let mut page_height = config.height;
     let mut pointer = Pointer::new(config.width, config.height);
+    let mut site_browser: Option<site_browser::Browser> = None;
     // The screen's cursor, drawn into the frames the game takes (cursor.rs), and whether the page was last told the
     // host draws it (`None`: not told since it loaded).
     let mut cursor = cursor::Cursor::new(Instant::now());
@@ -654,7 +656,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             }
             let _ = webview.post_json(&settings_message(&config.settings.get()));
         }
-        let mouse = pointer.update(&bridge.bridge().plugin.pointer, &webview);
+        let mouse = pointer.update(&bridge.bridge().plugin.pointer, &webview, site_browser.as_mut());
         cursor.follow(mouse, Instant::now());
         // The player's keybinds pressed in the game: the page acts on each.
         for keybind in Keybind::ALL {
@@ -740,6 +742,28 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
 
         for message in webview.take_page_messages() {
             match parse_page_message(&message) {
+                Some(PageMessage::Browser { command }) => {
+                    if matches!(command, site_browser::Command::Close) {
+                        if let Some(browser) = site_browser.take() {
+                            let _ = stage.remove(&browser.view);
+                        }
+                        continue;
+                    }
+                    if site_browser.is_none() && !matches!(command, site_browser::Command::Hide) {
+                        match site_browser::Browser::new(&stage, &config.data_dir.join("site-browser")) {
+                            Ok(browser) => site_browser = Some(browser),
+                            Err(error) => {
+                                log!("[site browser] could not start: {error}");
+                                let _ = webview.post_json(r#"{"type":"browserState","url":"","title":"","loading":false,"back":false,"forward":false,"error":"Could not start the browser. Close and reopen it to retry."}"#);
+                            }
+                        }
+                    }
+                    if let Some(browser) = &mut site_browser {
+                        if let Err(error) = browser.command(command, &stage) {
+                            log!("[site browser] command failed: {error}");
+                        }
+                    }
+                }
                 // The page announces itself when it (re)loads; it missed everything sent before, so send the
                 // current state again (some of it is otherwise only sent when it changes).
                 Some(PageMessage::Ready) => {
@@ -1384,6 +1408,10 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             }
         }
 
+        if let Some(browser) = &mut site_browser {
+            browser.tick(&webview);
+        }
+
         // What the player typed on their own keyboard, and whether it types (the plugin decides: the truck
         // standing still, a field selected then).
         let typing_block = &bridge.bridge().typing;
@@ -1657,12 +1685,7 @@ fn is_shown(game: u32) -> bool {
                 return BOOL(1);
             }
             let mut cloaked = 0u32;
-            let read = DwmGetWindowAttribute(
-                window,
-                DWMWA_CLOAKED,
-                (&raw mut cloaked).cast(),
-                size_of::<u32>() as u32,
-            );
+            let read = DwmGetWindowAttribute(window, DWMWA_CLOAKED, (&raw mut cloaked).cast(), size_of::<u32>() as u32);
             looking.shown = read.is_err() || cloaked == 0;
             // Found one showing: done.
             BOOL(i32::from(!looking.shown))
@@ -1987,6 +2010,7 @@ fn customize_list_message(customizations: &customize::Customizations) -> String 
 #[derive(Debug, PartialEq, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum PageMessage {
+    Browser { command: site_browser::Command },
     /// Posted when the page (re)loads.
     Ready,
     /// A startup stage the page reached (the boot screens shown), for the startup log (`startup`).

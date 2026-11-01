@@ -22,6 +22,38 @@ afterEach(() => {
 })
 
 describe('useKeyboard', () => {
+  it('sends remote editing events without copying field contents into the cabin', () => {
+    const events: unknown[] = []
+    const keyboard = useKeyboard.getState()
+    keyboard.attach(
+      {
+        id: 'remote',
+        returnKind: 'done',
+        read: () => '',
+        write: () => {
+          throw new Error('Remote field contents must not be replaced')
+        },
+        send: (event) => events.push(event),
+        submit: () => events.push({ key: 'enter' }),
+      },
+      'en',
+    )
+    keyboard.press({ kind: 'char', char: 'a' })
+    keyboard.press({ kind: 'delete' })
+    keyboard.press({ kind: 'return' })
+    keyboard.typed({ text: 'Привет' })
+    keyboard.typed({ key: 'wordBackspace' })
+    expect(events).toEqual([
+      { text: 'a' },
+      { key: 'backspace' },
+      { key: 'enter' },
+      { text: 'Привет' },
+      { key: 'wordBackspace' },
+    ])
+    expect(useKeyboard.getState().field?.id).toBe('remote')
+    keyboard.typed({ key: 'escape' })
+    expect(useKeyboard.getState().field).toBeNull()
+  })
   it('types into the selected field, and submits and goes away on return', () => {
     const { field, typing } = fakeField('search')
     const keyboard = useKeyboard.getState()

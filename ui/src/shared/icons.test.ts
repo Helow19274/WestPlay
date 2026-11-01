@@ -18,6 +18,7 @@ const ROLES: AppIconRole[] = [
   'youtube',
   'youtubeMusic',
   'yandexMusic',
+  'browser',
 ]
 
 describe('appIcon', () => {

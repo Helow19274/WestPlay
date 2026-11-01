@@ -203,6 +203,16 @@ pub struct OffscreenWebView {
 }
 
 impl OffscreenWebView {
+    /// Native control for host-owned browser features; never exposed to remote pages.
+    pub(crate) fn core(&self) -> &ICoreWebView2 {
+        &self.webview
+    }
+
+    pub(crate) fn zoom(&self, factor: f64) -> windows::core::Result<()> {
+        // SAFETY: the controller is alive and the caller supplies a finite, bounded factor.
+        unsafe { self.controller.SetZoomFactor(factor) }
+    }
+
     /// A WebView of `width` x `height` on `stage`'s compositor (not on the frame until [`Stage::add`]).
     pub fn new(stage: &Stage, width: u32, height: u32, user_data: &Path) -> Result<Self, Error> {
         let root = stage.compositor.CreateContainerVisual()?;
@@ -503,7 +513,6 @@ impl OffscreenWebView {
 
     /// Mutes the WebView's sound where it leaves for the PC's speakers (its page still makes it: what the
     /// page measures of it is as it was).
-    #[cfg(test)]
     pub fn set_muted(&self, muted: bool) -> windows::core::Result<()> {
         use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_8;
         // SAFETY: the WebView is alive as long as `self`; a plain value.

@@ -34,6 +34,13 @@ pub fn typed_message(codes: &[u32], paste: impl Fn() -> Option<String>) -> Optio
                 TypedKey::WordBackspace => events.push(serde_json::json!({ "key": "wordBackspace" })),
                 TypedKey::Enter => events.push(serde_json::json!({ "key": "enter" })),
                 TypedKey::Escape => events.push(serde_json::json!({ "key": "escape" })),
+                TypedKey::Tab => events.push(serde_json::json!({ "key": "tab" })),
+                TypedKey::Delete => events.push(serde_json::json!({ "key": "delete" })),
+                TypedKey::Left => events.push(serde_json::json!({ "key": "left" })),
+                TypedKey::Right => events.push(serde_json::json!({ "key": "right" })),
+                TypedKey::Home => events.push(serde_json::json!({ "key": "home" })),
+                TypedKey::End => events.push(serde_json::json!({ "key": "end" })),
+                TypedKey::SelectAll => events.push(serde_json::json!({ "key": "selectAll" })),
             }
         } else if let Some(character) = char::from_u32(code) {
             text.push(character);

@@ -433,13 +433,33 @@ pub enum TypedKey {
     Escape = 0x8000_0004,
     /// Ctrl+V: the app pastes what the PC's clipboard holds.
     Paste = 0x8000_0005,
+    Tab = 0x8000_0006,
+    Delete = 0x8000_0007,
+    Left = 0x8000_0008,
+    Right = 0x8000_0009,
+    Home = 0x8000_000a,
+    End = 0x8000_000b,
+    SelectAll = 0x8000_000c,
 }
 
 impl TypedKey {
     pub fn from_code(code: u32) -> Option<Self> {
-        [Self::Backspace, Self::WordBackspace, Self::Enter, Self::Escape, Self::Paste]
-            .into_iter()
-            .find(|key| *key as u32 == code)
+        [
+            Self::Backspace,
+            Self::WordBackspace,
+            Self::Enter,
+            Self::Escape,
+            Self::Paste,
+            Self::Tab,
+            Self::Delete,
+            Self::Left,
+            Self::Right,
+            Self::Home,
+            Self::End,
+            Self::SelectAll,
+        ]
+        .into_iter()
+        .find(|key| *key as u32 == code)
     }
 }
 

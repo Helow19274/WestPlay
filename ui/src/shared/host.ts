@@ -90,6 +90,16 @@ export interface JobInfo {
 export type KeybindAction = 'volumeUp' | 'volumeDown' | 'playPause'
 
 export type HostMessage =
+  | {
+      type: 'browserState'
+      url: string
+      title: string
+      loading: boolean
+      back: boolean
+      forward: boolean
+      error: string | null
+    }
+  | { type: 'browserFocus'; editable: boolean }
   | { type: 'telemetry'; data: Telemetry }
   | { type: 'truck'; data: TruckInfo }
   | { type: 'job'; data: JobInfo }
@@ -265,6 +275,7 @@ export function toEqualizer(value: unknown): Equalizer {
 }
 
 export type PageMessage =
+  | { type: 'browser'; command: BrowserCommand }
   | { type: 'ready' }
   /** A startup stage reached (the boot screens shown), for the host's startup log. */
   | { type: 'startup'; stage: string }
@@ -308,6 +319,13 @@ export type PageMessage =
 /** What the Spotify app asks of Spotify's web player (`westplay_host::spotify::Command`), run hidden by the
  * host: its sign-in, a question (answered with `spotifyAnswer` and the same `id`), and the player's controls
  * (`play` with a context plays it, from `track`; without, it plays on). */
+export type BrowserCommand =
+  | { action: 'navigate'; url: string }
+  | { action: 'back' | 'forward' | 'reload' | 'stop' | 'hide' | 'close' }
+  | { action: 'show'; x: number; y: number; width: number; height: number }
+  | { action: 'zoom'; factor: number }
+  | { action: 'input'; event: TypedEvent }
+
 export type SpotifyCommand =
   /** Run (hidden), saying whether it's signed in (the Spotify app opened). */
   | { action: 'start' }
@@ -953,7 +971,22 @@ export interface YouTubeAnswer {
 }
 
 /** Text typed, or a key with a meaning of its own. */
-export type TypedEvent = { text: string } | { key: 'backspace' | 'wordBackspace' | 'enter' | 'escape' }
+export type TypedEvent =
+  | { text: string }
+  | {
+      key:
+        | 'backspace'
+        | 'wordBackspace'
+        | 'enter'
+        | 'escape'
+        | 'tab'
+        | 'delete'
+        | 'left'
+        | 'right'
+        | 'home'
+        | 'end'
+        | 'selectAll'
+    }
 
 /** Whether the player's own keyboard types into the field selected: no field selected (`off`), typing, or
  * the keys the game's (`paused`: the truck moved, or the field was selected while it moved). */
