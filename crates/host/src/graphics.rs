@@ -40,14 +40,14 @@ pub fn adapters() -> Vec<Adapter> {
     for adapter in listed {
         // SAFETY: the adapter is alive; the description is a local.
         let Ok(desc) = (unsafe { adapter.GetDesc1() }) else { continue };
-        if desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32 != 0 {
+        let name = String::from_utf16_lossy(&desc.Description).trim_end_matches('\0').trim().to_string();
+        if desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32 != 0 || name.contains("Basic Render") {
             continue;
         }
         let pci = format!("{:04x}:{:04x}:{:08x}:{}", desc.VendorId, desc.DeviceId, desc.SubSysId, desc.Revision);
         // Two of the same card: the second is told apart by its place.
         let twins = adapters.iter().filter(|a| a.id.split('#').next() == Some(pci.as_str())).count();
         let id = if twins == 0 { pci } else { format!("{pci}#{}", twins + 1) };
-        let name = String::from_utf16_lossy(&desc.Description).trim_end_matches('\0').trim().to_string();
         adapters.push(Adapter { id, name, luid: desc.AdapterLuid });
     }
     adapters

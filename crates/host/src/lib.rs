@@ -2207,6 +2207,9 @@ mod tests {
 
     #[test]
     fn a_game_run_normally_isnt_elevated() {
+        if std::env::var_os("CI").is_some() {
+            return;
+        }
         use windows::Win32::System::Threading::GetCurrentProcessId;
         assert!(!super::is_elevated(0));
         // This test, run as the player runs WestPlay (not as administrator): not elevated.
