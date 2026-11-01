@@ -3,6 +3,25 @@
 What changed in each release of WestPlay. The newest release's notes are what the app shows when it offers the
 update.
 
+## 2.1.5 (2026-11-01)
+- Yandex Music is available on Home, with light and dark icons. Its full website opens inside the cabin,
+  with frame permissions scoped to Yandex Music and its sign-in pages.
+- Added a Browser app with an address bar, back/forward navigation, reload/stop, and 50–200% zoom. It opens
+  Google the first time, then remembers the last address. Links that request a new window open in the same view.
+- The browser keeps cookies and website storage in its own profile, separate from WestPlay's other apps.
+  Leaving it hides the page and mutes its sound; Restart recreates the browser without clearing its profile.
+- Website fields work with the cabin keyboard and the player's own keyboard while the truck stands still,
+  including fields inside frames from another site. Added Tab, Delete, Left/Right, Home/End and Ctrl+A to the
+  physical typing bridge. These extra keys require the updated game plugin.
+- Browser pages have no access to WestPlay's host commands or local folder mappings. File downloads and
+  camera, microphone and other permission requests are disabled in this version; some sign-in flows and
+  protected media may still need a desktop browser.
+- Browser icons can be replaced through custom icon sets. Added browser documentation and tests covering
+  navigation, cookies, text editing, cross-origin frames and the built cabin controls.
+- Windows x64 installers now build in GitHub Actions on pushes, pull requests and manual runs. The workflow
+  builds the game plugin and NSIS installer, and keeps the installer as a downloadable artifact for 14 days;
+  it does not require updater signing secrets.
+
 ## 2.1.4 (2026-10-28)
 - The cursor on WestPlay's screen stays where you left it when you let go of the interaction key, and fades away
   five seconds after you last moved it, as it does when you stop moving it: it went the moment you let go.
