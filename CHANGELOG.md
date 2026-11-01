@@ -3,6 +3,16 @@
 What changed in each release of WestPlay. The newest release's notes are what the app shows when it offers the
 update.
 
+## 2.1.6 (2026-11-02)
+- Browser audio keeps playing when leaving the app or switching to another screen.
+- Yandex Music now opens in its own native browser instead of an iframe, with a read-only address field
+  and a Start page button. Navigation controls, zoom and Restart are available as in Browser.
+- Browser and Yandex Music keep independent pages, cookies and background playback. Yandex Music uses a
+  new profile, so users need to sign in again after updating.
+- Added developer instructions for registering more fixed website apps and their icons.
+- The Windows installer CI workflow now runs the UI and Rust workspace test suites before building the
+  game plugin and installer.
+
 ## 2.1.5 (2026-11-01)
 - Yandex Music is available on Home, with light and dark icons. Its full website opens inside the cabin,
   with frame permissions scoped to Yandex Music and its sign-in pages.
