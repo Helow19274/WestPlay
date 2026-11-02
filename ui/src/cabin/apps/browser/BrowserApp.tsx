@@ -1,41 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { WEB_APPS, type BrowserId } from '../../../shared/webApps'
-import {
-  isInHost,
-  postToHost,
-  subscribeHostMessages,
-  type BrowserCommand,
-  type HostMessage,
-} from '../../../shared/host'
+import { isInHost, postToHost, subscribeHostMessages, type BrowserCommand } from '../../../shared/host'
 import { TextField } from '../../keyboard/TextField'
 import { useKeyboard } from '../../keyboard/store'
-import { useCabin } from '../../state/store'
+import { go, useCabin } from '../../state/store'
 import { useLanguage } from '../../state/text'
 import { whenTransitionEnds } from '../../state/launch'
 import './browser.css'
+import { resetSession, sessionFor } from './session'
 
-type BrowserState = Extract<HostMessage, { type: 'browserState' }>
-const INITIAL: BrowserState = {
-  type: 'browserState',
-  id: 'browser',
-  url: '',
-  title: '',
-  loading: false,
-  back: false,
-  forward: false,
-  error: null,
-}
 const STORAGE = 'westplay.browser.url'
-type Session = { current: BrowserState; started: boolean; zoom: number }
-const sessions = new Map<BrowserId, Session>()
-function sessionFor(id: BrowserId): Session {
-  let session = sessions.get(id)
-  if (!session) {
-    session = { current: { ...INITIAL, id }, started: false, zoom: 1 }
-    sessions.set(id, session)
-  }
-  return session
-}
 function savedAddress() {
   try {
     return localStorage.getItem(STORAGE) || 'https://www.google.com/'
@@ -56,12 +30,14 @@ export function BrowserApp({ id = 'browser' }: { id?: BrowserId }) {
   const [zoom, setZoom] = useState(session.zoom)
   const [generation, setGeneration] = useState(0)
   const area = useRef<HTMLDivElement>(null)
+  const closed = useRef(false)
   const handedOver = useCabin((state) => state.truckScreen)
   const remoteId = `browser-page:${id}`
 
   useEffect(
     () =>
       subscribeHostMessages((message) => {
+        if (closed.current) return
         if (message.type === 'browserState' && message.id === id) {
           session.current = message
           setState(message)
@@ -100,13 +76,13 @@ export function BrowserApp({ id = 'browser' }: { id?: BrowserId }) {
     let last = ''
     // Native surfaces cannot participate in the DOM's opening animation.
     whenTransitionEnds(() => {
-      if (gone) return
+      if (gone || closed.current) return
       if (!session.started) {
         session.started = true
         command({ action: 'navigate', url: preset?.url || session.current.url || savedAddress() })
       }
       const place = () => {
-        if (gone) return
+        if (gone || closed.current || !session.started) return
         const box = area.current?.getBoundingClientRect()
         const cabin = document.querySelector('.carplay')?.getBoundingClientRect()
         const keyboard = document.querySelector('.keyboard.shown')?.getBoundingClientRect()
@@ -196,13 +172,25 @@ export function BrowserApp({ id = 'browser' }: { id?: BrowserId }) {
         <button
           onClick={() => {
             command({ action: 'close' })
-            session.started = false
-            session.zoom = 1
+            resetSession(id)
+            setState(session.current)
             setZoom(1)
             setGeneration((value) => value + 1)
           }}
         >
           {tr ? 'Yeniden başlat' : 'Restart'}
+        </button>
+        <button
+          onClick={() => {
+            closed.current = true
+            useKeyboard.getState().detach('browser-address')
+            useKeyboard.getState().detach(remoteId)
+            command({ action: 'close' })
+            resetSession(id)
+            go({ type: 'pressHome' })
+          }}
+        >
+          {tr ? 'Kapat' : 'Close'}
         </button>
       </div>
       {state.error && (

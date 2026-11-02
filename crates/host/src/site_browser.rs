@@ -3,11 +3,12 @@ use crate::webview::{Error, OffscreenWebView, Stage};
 use serde::{Deserialize, Serialize};
 use std::{
     cell::RefCell,
-    path::Path,
     rc::Rc,
     time::{Duration, Instant},
 };
-use webview2_com::Microsoft::Web::WebView2::Win32::{COREWEBVIEW2_PERMISSION_STATE_DENY, ICoreWebView2_4};
+use webview2_com::Microsoft::Web::WebView2::Win32::{
+    COREWEBVIEW2_PERMISSION_STATE_DENY, ICoreWebView2_4, ICoreWebView2Environment,
+};
 use webview2_com::{
     CallDevToolsProtocolMethodCompletedHandler, CoTaskMemPWSTR, DownloadStartingEventHandler,
     NavigationCompletedEventHandler, NavigationStartingEventHandler, NewWindowRequestedEventHandler,
@@ -108,8 +109,8 @@ pub struct Browser {
 }
 
 impl Browser {
-    pub fn new(stage: &Stage, profile: &Path) -> Result<Self, Error> {
-        let view = OffscreenWebView::new(stage, 800, 600, profile)?;
+    pub fn new(stage: &Stage, environment: &ICoreWebView2Environment, id: BrowserId) -> Result<Self, Error> {
+        let view = OffscreenWebView::with_profile(stage, 800, 600, environment, id.profile())?;
         let core = view.core();
         let state = Rc::new(RefCell::new(State::default()));
         let focus = Rc::new(RefCell::new(None));
@@ -370,6 +371,7 @@ impl Browser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
     #[test]
     #[ignore = "renders the built browser controls; WESTPLAY_UI names the UI dist directory"]
     fn built_browser_controls() {
@@ -391,7 +393,8 @@ mod tests {
         stage.add(&view, true).unwrap();
         // A layout preview has no continuous frame capture to advance native view transitions.
         view.add_startup_script("document.startViewTransition = undefined; window.__errors=[]; addEventListener('error',e=>__errors.push(e.message)); addEventListener('unhandledrejection',e=>__errors.push(String(e.reason)))").unwrap();
-        view.navigate("https://westplay.cabin/cabin.html?demo").unwrap();
+        view.add_startup_script("localStorage.setItem('westplay.cabin', JSON.stringify({version:3,state:{navigation:{route:{kind:'home'},base:'home',recents:[]}}}))").unwrap();
+        view.navigate("https://westplay.cabin/cabin.html").unwrap();
         let pump = || {
             let until = Instant::now() + Duration::from_secs(2);
             while Instant::now() < until {
@@ -400,6 +403,9 @@ mod tests {
             }
         };
         pump();
+        let telemetry = westplay_shared::Telemetry { electric_enabled: true, ..Default::default() };
+        let powered = serde_json::json!({"type":"telemetry","data":telemetry}).to_string();
+        view.post_json(&powered).unwrap();
         for _ in 0..5 {
             if view.evaluate("!!document.querySelector('button.app[data-app=browser]')").unwrap() == "true" {
                 break;
@@ -460,6 +466,52 @@ mod tests {
             "true"
         );
         view.capture_png(&std::env::temp_dir().join("browser-preview.png")).unwrap();
+        // Closing releases the selected native browser and leaves its screen. Reopening must navigate
+        // again, rather than trying to show the already-destroyed control (including fixed web apps).
+        for id in ["yandexMusic", "browser"] {
+            view.evaluate("document.querySelector('.home-button').click()").unwrap();
+            pump();
+            view.evaluate(&format!("document.querySelector('button.app[data-app={id}]').click()")).unwrap();
+            pump();
+            view.take_page_messages();
+            view.evaluate(
+                "[...document.querySelectorAll('.browser-info button')].find(b => b.textContent === 'Close').click()",
+            )
+            .unwrap();
+            pump();
+            assert_eq!(view.evaluate("!!document.querySelector('.browser-toolbar')").unwrap(), "false");
+            let commands: Vec<serde_json::Value> = view
+                .take_page_messages()
+                .iter()
+                .filter_map(|message| serde_json::from_str::<serde_json::Value>(message).ok())
+                .filter(|message| message["type"] == "browser")
+                .collect();
+            assert!(commands.iter().any(|message| message["id"] == id && message["command"]["action"] == "close"));
+            assert!(
+                !commands
+                    .iter()
+                    .any(|message| matches!(message["command"]["action"].as_str(), Some("show" | "navigate")))
+            );
+            view.evaluate(&format!("document.querySelector('button.app[data-app={id}]').click()")).unwrap();
+            pump();
+            assert!(view.take_page_messages().iter().any(|message| {
+                let message: serde_json::Value = serde_json::from_str(message).unwrap();
+                message["type"] == "browser" && message["id"] == id && message["command"]["action"] == "navigate"
+            }));
+        }
+        view.post_json(r#"{"type":"game","running":false}"#).unwrap();
+        pump();
+        assert_eq!(view.evaluate("!!document.querySelector('.browser-toolbar')").unwrap(), "false");
+        view.take_page_messages();
+        view.post_json(r#"{"type":"game","running":true}"#).unwrap();
+        view.post_json(&powered).unwrap();
+        for _ in 0..4 {
+            pump();
+        }
+        assert!(view.take_page_messages().iter().any(|message| {
+            let message: serde_json::Value = serde_json::from_str(message).unwrap();
+            message["type"] == "browser" && message["id"] == "browser" && message["command"]["action"] == "navigate"
+        }));
     }
     #[test]
     fn accepts_web_addresses_only() {
@@ -549,7 +601,8 @@ mod tests {
         };
         let profile = std::env::temp_dir().join(format!("westplay-browser-test-{}", std::process::id()));
         let stage = Stage::new(800, 600).unwrap();
-        let mut browser = Browser::new(&stage, &profile).unwrap();
+        let cabin = OffscreenWebView::new(&stage, 800, 600, &profile).unwrap();
+        let mut browser = Browser::new(&stage, cabin.environment(), BrowserId::Browser).unwrap();
         browser.command(Command::Show { x: 0.0, y: 0.0, width: 800, height: 600 }, &stage).unwrap();
         browser.command(Command::Navigate { url: format!("http://127.0.0.1:{port}/") }, &stage).unwrap();
         pump(2500);
@@ -594,7 +647,7 @@ mod tests {
         pump(100);
         assert_eq!(browser.view.evaluate("window.frameValue").unwrap(), "\"replaced\"");
         assert!(browser.view.take_page_messages().is_empty());
-        browser.view.evaluate("document.cookie='browserTest=kept;path=/'").unwrap();
+        browser.view.evaluate("document.cookie='browserTest=kept;path=/;max-age=3600'").unwrap();
         browser.command(Command::Navigate { url: format!("http://127.0.0.1:{port}/second") }, &stage).unwrap();
         pump(500);
         assert_eq!(browser.view.evaluate("document.title").unwrap(), "\"Second\"");
@@ -609,10 +662,34 @@ mod tests {
         pump(200);
         assert_eq!(browser.view.evaluate("document.title").unwrap(), "\"Second\"");
         browser.command(Command::Zoom { factor: 1.2 }, &stage).unwrap();
-        let mut other = Browser::new(&stage, &profile.join("other")).unwrap();
+        let mut other = Browser::new(&stage, cabin.environment(), BrowserId::YandexMusic).unwrap();
         other.command(Command::Navigate { url: format!("http://127.0.0.1:{port}/") }, &stage).unwrap();
         pump(1000);
         assert_eq!(other.view.evaluate("document.cookie").unwrap(), "\"\"");
+        other.view.evaluate("document.cookie='otherBrowser=kept;path=/'").unwrap();
+        // One browser process, three isolated profiles, even on the same origin.
+        cabin.navigate(&format!("http://127.0.0.1:{port}/")).unwrap();
+        pump(500);
+        let browser_pid = |view: &OffscreenWebView| {
+            let mut pid = 0;
+            // SAFETY: the test owns a live WebView on this STA; pid is an output value.
+            unsafe {
+                view.core().BrowserProcessId(&mut pid).unwrap();
+            }
+            pid
+        };
+        assert_ne!(browser_pid(&cabin), 0);
+        assert_eq!(browser_pid(&browser.view), browser_pid(&cabin));
+        assert_eq!(browser_pid(&other.view), browser_pid(&cabin));
+        assert_eq!(cabin.evaluate("document.cookie").unwrap(), "\"\"");
+        cabin.evaluate("document.cookie='cabinOnly=kept;path=/'; localStorage.setItem('owner','cabin')").unwrap();
+        browser.view.evaluate("localStorage.setItem('owner','browser')").unwrap();
+        assert_eq!(other.view.evaluate("localStorage.getItem('owner')").unwrap(), "null");
+        assert_eq!(cabin.evaluate("localStorage.getItem('owner')").unwrap(), "\"cabin\"");
+        assert!(!browser.view.evaluate("document.cookie").unwrap().contains("cabinOnly"));
+        other.view.delete_cookies().unwrap();
+        assert!(browser.view.evaluate("document.cookie").unwrap().contains("browserTest=kept"));
+        assert!(cabin.evaluate("document.cookie").unwrap().contains("cabinOnly=kept"));
         other.view.evaluate("document.cookie='otherBrowser=kept;path=/'").unwrap();
         // Play a silent PCM WAV through the real media pipeline, without external sites or audible test noise.
         browser
@@ -660,5 +737,16 @@ mod tests {
             assert!(!browser.view.evaluate("document.cookie").unwrap().contains("otherBrowser"));
         }
         browser.view.evaluate("testAudio.pause(); URL.revokeObjectURL(testAudio.src)").unwrap();
+        stage.remove(&browser.view).unwrap();
+        drop(browser);
+        let mut reopened = Browser::new(&stage, cabin.environment(), BrowserId::Browser).unwrap();
+        reopened.command(Command::Navigate { url: format!("http://127.0.0.1:{port}/") }, &stage).unwrap();
+        pump(1000);
+        assert_eq!(browser_pid(&reopened.view), browser_pid(&cabin));
+        assert_eq!(reopened.view.evaluate("document.title").unwrap(), "\"Fixture\"");
+        assert!(reopened.view.evaluate("document.cookie").unwrap().contains("browserTest=kept"));
+        assert_eq!(reopened.view.evaluate("localStorage.getItem('owner')").unwrap(), "\"browser\"");
+        assert!(other.view.evaluate("document.cookie").unwrap().contains("otherBrowser=kept"));
+        assert_eq!(cabin.evaluate("document.title").unwrap(), "\"Fixture\"");
     }
 }

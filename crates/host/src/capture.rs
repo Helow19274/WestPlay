@@ -3,6 +3,8 @@
 //! an idle UI costs nothing; and so a frame that arrives before it's due is kept, not dropped, and goes out
 //! when it is: dropped, it might be the last of an animation or a cursor move, and nothing would come to
 //! replace it.
+//! On Windows supporting MinUpdateInterval, WGC itself is also capped at MAX_FPS, before frames reach
+//! the mailbox. Older Windows keeps the publication limiter. Neither limit caps Chromium's rendering.
 //!
 //! The screen's cursor is drawn here, over each frame as it goes out (`cursor.rs`): the page's frame is kept
 //! as captured, and as the cursor moves it goes out again from there with the cursor where it is now, the page
@@ -19,7 +21,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use westplay_shared::BridgeMapping;
-use windows::Foundation::TypedEventHandler;
+use windows::Foundation::{TimeSpan, TypedEventHandler};
 use windows::Graphics::Capture::{
     Direct3D11CaptureFrame, Direct3D11CaptureFramePool, GraphicsCaptureItem, GraphicsCaptureSession,
 };
@@ -39,6 +41,8 @@ use crate::gpu::{Gpu, Lock, SharedFrame};
 /// Frames per second published to the game. Chromium renders at the monitor's refresh rate.
 pub const MAX_FPS: u32 = 60;
 const FRAME_INTERVAL: Duration = Duration::from_micros(1_000_000 / MAX_FPS as u64);
+/// WinRT uses 100 ns ticks. Round up so the requested capture rate does not exceed MAX_FPS.
+const CAPTURE_INTERVAL: TimeSpan = TimeSpan { Duration: 10_000_000u64.div_ceil(MAX_FPS as u64) as i64 };
 /// Tolerance for capture timing jitter.
 const FRAME_JITTER: Duration = Duration::from_micros(1_500);
 /// Frames in the capture pool: one kept in the mailbox, one being published, one WGC draws into.
@@ -84,6 +88,14 @@ impl Capture {
         )?;
         let session = pool.CreateCaptureSession(&item)?;
         let _ = session.SetIsCursorCaptureEnabled(false);
+        // The binding queries IGraphicsCaptureSession5: older Windows returns an error, rather than
+        // preventing capture. Keep the existing publication limiter on every Windows version.
+        match session.SetMinUpdateInterval(CAPTURE_INTERVAL) {
+            Ok(()) => crate::log!("capture: WGC update rate limited to {MAX_FPS} fps"),
+            Err(error) => crate::log!(
+                "capture: WGC update interval unavailable; using the {MAX_FPS} fps publication limiter: {error}"
+            ),
+        }
 
         let mailbox = Arc::new(Mailbox::new(Instant::now()));
         let arrived = Arc::new(AtomicU64::new(0));

@@ -63,3 +63,36 @@ describe('the saved Text Size', () => {
     expect(useCabin.getState().textSize).toBe(DEFAULT_TEXT_SIZE)
   })
 })
+
+it('forgets both native browser sessions when the game exits, even without mounted browser screens', async () => {
+  vi.stubGlobal('localStorage', savedStorage({}))
+  const listeners = new Set<(event: { data: unknown }) => void>()
+  vi.stubGlobal('window', {
+    chrome: {
+      webview: {
+        addEventListener: (_: string, listener: (event: { data: unknown }) => void) => listeners.add(listener),
+        removeEventListener: (_: string, listener: (event: { data: unknown }) => void) => listeners.delete(listener),
+        postMessage: vi.fn(),
+      },
+    },
+  })
+  const { connectHost } = await import('./store')
+  const { sessionFor } = await import('../apps/browser/session')
+  const sessions = [sessionFor('browser'), sessionFor('yandexMusic')]
+  for (const session of sessions) {
+    session.started = true
+    session.zoom = 1.5
+    session.current = { ...session.current, url: 'https://example.org/', back: true, loading: true }
+  }
+  const stop = connectHost(() => 100)
+  try {
+    for (const listener of listeners) listener({ data: { type: 'game', running: false } })
+    for (const session of sessions) {
+      expect(session.started).toBe(false)
+      expect(session.zoom).toBe(1)
+      expect(session.current).toMatchObject({ url: 'https://example.org/', back: false, loading: false })
+    }
+  } finally {
+    stop()
+  }
+})

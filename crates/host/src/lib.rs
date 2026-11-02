@@ -509,6 +509,9 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 game_running = running;
                 if !running {
                     players_closing = true;
+                    for (_, browser) in site_browsers.drain() {
+                        let _ = stage.remove(&browser.view);
+                    }
                     log!("the game closed: its web players are closed");
                 }
                 let _ = webview.post_json(&game_message(running));
@@ -751,8 +754,13 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                         }
                         continue;
                     }
-                    if !site_browsers.contains_key(&id) && !matches!(command, site_browser::Command::Hide) {
-                        match site_browser::Browser::new(&stage, &config.data_dir.join(id.profile())) {
+                    // Queued commands must not reopen a browser after the game has exited.
+                    if !game_running {
+                        continue;
+                    }
+                    // Only navigation creates a control; late Show/Input commands after Close do not.
+                    if !site_browsers.contains_key(&id) && matches!(command, site_browser::Command::Navigate { .. }) {
+                        match site_browser::Browser::new(&stage, webview.environment(), id) {
                             Ok(browser) => {
                                 site_browsers.insert(id, browser);
                             }

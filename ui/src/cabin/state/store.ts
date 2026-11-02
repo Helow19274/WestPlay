@@ -34,6 +34,7 @@ import {
   receiveState as receiveYouTubeMusicState,
 } from '../apps/youtubeMusic/youtubeMusic'
 import { useKeyboard } from '../keyboard/store'
+import { resetBrowserSessions } from '../apps/browser/session'
 import { receiveMapFolder } from '../maps/mapData'
 import { receiveDetours, receiveFollowed, receiveRouteAnswer, receiveRoutes } from '../maps/routeChange'
 import type { Point, RouteNode } from '../maps/route'
@@ -507,6 +508,7 @@ function receiveHostMessage(now: () => number): (message: HostMessage) => void {
         // The game closed: the screen goes off as with the truck's electrics (the kept apps go with it), and
         // the next game's first telemetry powers it on afresh.
         if (!message.running) {
+          resetBrowserSessions()
           useLive.setState({ telemetry: null })
           useCabin.getState().powerEvent({ type: 'electrics', on: false, at: now() })
         }

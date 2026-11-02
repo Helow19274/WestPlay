@@ -18,7 +18,7 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE, CreateCoreWebView2EnvironmentWithOptions,
     ICoreWebView2, ICoreWebView2_2, ICoreWebView2_3, ICoreWebView2CompositionController, ICoreWebView2Controller,
     ICoreWebView2Controller2, ICoreWebView2Controller3, ICoreWebView2Environment, ICoreWebView2Environment3,
-    ICoreWebView2EnvironmentOptions, ICoreWebView2Settings5, ICoreWebView2Settings6,
+    ICoreWebView2Environment10, ICoreWebView2EnvironmentOptions, ICoreWebView2Settings5, ICoreWebView2Settings6,
 };
 use webview2_com::{
     AddScriptToExecuteOnDocumentCreatedCompletedHandler, CoTaskMemPWSTR, CoreWebView2EnvironmentOptions,
@@ -187,8 +187,7 @@ impl Stage {
 }
 
 pub struct OffscreenWebView {
-    /// The WebView2 environment it was made in: another WebView on its profile is made from it (a second
-    /// environment on a profile in use is refused).
+    /// The shared process group. Controls in it can use distinct named profiles for data isolation.
     environment: ICoreWebView2Environment,
     root: ContainerVisual,
     host: HWND,
@@ -215,6 +214,27 @@ impl OffscreenWebView {
 
     /// A WebView of `width` x `height` on `stage`'s compositor (not on the frame until [`Stage::add`]).
     pub fn new(stage: &Stage, width: u32, height: u32, user_data: &Path) -> Result<Self, Error> {
+        Self::in_environment(stage, width, height, create_environment(user_data)?, None)
+    }
+
+    /// A separate persistent profile in an existing environment, without another browser process group.
+    pub fn with_profile(
+        stage: &Stage,
+        width: u32,
+        height: u32,
+        environment: &ICoreWebView2Environment,
+        profile: &str,
+    ) -> Result<Self, Error> {
+        Self::in_environment(stage, width, height, environment.clone(), Some(profile))
+    }
+
+    fn in_environment(
+        stage: &Stage,
+        width: u32,
+        height: u32,
+        environment: ICoreWebView2Environment,
+        profile: Option<&str>,
+    ) -> Result<Self, Error> {
         let root = stage.compositor.CreateContainerVisual()?;
         root.SetSize(Vector2 { X: width as f32, Y: height as f32 })?;
 
@@ -249,14 +269,22 @@ impl OffscreenWebView {
             let _ = EnableWindow(host, false);
         }
 
-        let environment = create_environment(user_data)?;
         // SAFETY: WebView2 writes a CoTaskMem string into `version`, read before it's dropped.
         let version = unsafe {
             let mut version = PWSTR::null();
             environment.BrowserVersionString(&mut version)?;
             version.to_string()?
         };
-        let composition = create_composition_controller(&environment.cast()?, host)?;
+        let composition = match create_composition_controller(&environment.cast()?, host, profile) {
+            Ok(composition) => composition,
+            Err(error) => {
+                // SAFETY: this constructor owns the hidden HWND; no control was returned to own it.
+                unsafe {
+                    let _ = DestroyWindow(host);
+                }
+                return Err(error);
+            }
+        };
         let controller: ICoreWebView2Controller = composition.cast()?;
         // SAFETY: the controller and `root` were made above and are alive; the colour and bounds are plain values.
         unsafe {
@@ -403,7 +431,8 @@ impl OffscreenWebView {
         self.root.SetScale(windows_numerics::Vector3 { X: scale, Y: scale, Z: 1.0 })
     }
 
-    /// Its WebView2 environment, for another WebView on its profile (a window: signin.rs).
+    /// Its process group. Creating another control also requires choosing its profile; the environment
+    /// alone does not identify a named profile. Existing service sign-in windows use the default profile.
     pub fn environment(&self) -> &ICoreWebView2Environment {
         &self.environment
     }
@@ -766,15 +795,33 @@ fn create_environment(user_data: &Path) -> Result<ICoreWebView2Environment, Erro
 fn create_composition_controller(
     environment: &ICoreWebView2Environment3,
     host: HWND,
+    profile: Option<&str>,
 ) -> Result<ICoreWebView2CompositionController, Error> {
     let environment = environment.clone();
+    let named = if let Some(profile) = profile {
+        let environment: ICoreWebView2Environment10 = environment.cast()?;
+        // SAFETY: the live environment creates options used on this STA; the name is host-owned.
+        let options = unsafe {
+            let options = environment.CreateCoreWebView2ControllerOptions()?;
+            options.SetProfileName(&HSTRING::from(profile))?;
+            options.SetIsInPrivateModeEnabled(false)?;
+            options
+        };
+        Some((environment, options))
+    } else {
+        None
+    };
     let (tx, rx) = mpsc::channel();
     CreateCoreWebView2CompositionControllerCompletedHandler::wait_for_async_operation(
         // SAFETY: `host` is the WebView's live window; the handler is kept alive until WebView2 calls it.
         Box::new(move |handler| unsafe {
-            environment
-                .CreateCoreWebView2CompositionController(host, &handler)
-                .map_err(webview2_com::Error::WindowsError)
+            match &named {
+                Some((environment, options)) => {
+                    environment.CreateCoreWebView2CompositionControllerWithOptions(host, options, &handler)
+                }
+                None => environment.CreateCoreWebView2CompositionController(host, &handler),
+            }
+            .map_err(webview2_com::Error::WindowsError)
         }),
         Box::new(move |error, controller| {
             error?;

@@ -2,9 +2,14 @@
 
 Open **Browser** from the cabin Home screen. Enter an HTTP/HTTPS address (a missing scheme defaults to
 HTTPS), then press Go. Back, Forward, Reload/Stop and 50–200% zoom are available. The last address is
-remembered; cookies and website storage live in a separate `site-browser` profile in WestPlay's data folder.
-Restart recreates the control without clearing that profile. Leaving the app hides the site while keeping
-the page and its audio running in the background. Pause playback on the website to stop its sound.
+remembered; cookies and website storage live in the named `site-browser` profile within the cabin's `webview2`
+user data folder. The browser shares the cabin's WebView2 environment and browser process group, but not its
+default profile or page bridge.
+Restart recreates the control without clearing that profile. Leaving via Home hides the site while keeping
+the page and its audio running in the background. **Close** releases the browser, stops its audio and returns
+to Home or Dashboard. Opening it again creates a new browser; persistent cookies, website storage and the last
+address are kept. Session-only cookies may expire when the profile's last control closes.
+Exiting the game closes all site browsers, including those playing in the background.
 
 ## Fixed web apps
 
@@ -13,11 +18,13 @@ Its address field is read-only; **Start page** returns to the configured URL. Li
 pages can navigate to other domains. Back, Forward, Reload/Stop, zoom and Restart work as in Browser.
 Switching apps preserves each page and background audio. Restart affects only the selected app.
 
-The fixed list is in `ui/src/shared/webApps.ts`; native identities/profile directories are in
+The fixed list is in `ui/src/shared/webApps.ts`; native identities/profile names are in
 `crates/host/src/site_browser.rs` (`BrowserId`). There is no runtime editor. The existing Home tile and icon
-are reused. Each opened app gets its own WebView and persistent profile, created lazily; Yandex Music uses
-`site-yandex-music`, separate from the ordinary browser's `site-browser`. The previous iframe and its
-frame-ancestor exception have been removed. The old iframe's login is not migrated: sign in once in the new
+are reused. Each opened app gets its own WebView and persistent named profile, created lazily in the cabin's
+environment; Yandex Music uses `site-yandex-music`, separate from the ordinary browser's `site-browser` and
+the cabin's default profile. Closing one control keeps the other controls and their profiles alive.
+The previous iframe and its frame-ancestor exception have been removed. The old iframe's login is not
+migrated: sign in once in the new
 browser. Rebuild both the UI and host together because browser messages now include the instance ID.
 
 The browser uses a separate offscreen WebView2 composed into the existing game frame. Websites receive
@@ -26,6 +33,10 @@ Navigation accepts web URLs only, including redirects and new-window requests. N
 view. File downloads and permission requests (camera, microphone, location, etc.) are disabled in this version.
 Some sign-in flows requiring a separate popup window, protected media, extensions and native file dialogs may
 not work as in a full desktop browser.
+
+The shared cabin frame's Windows Graphics Capture session requests a minimum update interval of 16.6667 ms
+(60 FPS). On Windows without `MinUpdateInterval` support, capture continues with the existing 60 FPS frame
+publication limiter; the log reports the fallback. This limits capture, not Chromium's own rendering rate.
 
 Click a website field to use the cabin keyboard. The game's existing stationary-truck rule also applies to
 physical typing. Text is inserted by Chromium, including into cross-origin frames, without sending field
@@ -47,7 +58,7 @@ Use one stable camelCase ID everywhere, for example `exampleRadio`:
    under `ui/public/icons/westplay/`. Set the `APPS` entry's `icon` to that role. `WEB_APPS` does not load icons.
 4. In `crates/host/src/site_browser.rs`, add `ExampleRadio` to `BrowserId` (Serde serializes it as
    `exampleRadio`) and `Self::ExampleRadio => "site-example-radio"` to `profile()`. Use a unique, stable
-   profile directory so the site's cookies stay separate and survive restarts.
+   profile name so the site's cookies stay separate and survive restarts.
 5. Update the expected Home order in `ui/src/cabin/state/apps.test.ts` and any icon tests affected by a new
    role. Run the frontend build/tests and native checks below, then rebuild the UI and host together.
 
@@ -60,7 +71,8 @@ background playback. Adding only a `WEB_APPS` entry does not create a Home tile 
 `npm run build --prefix ui` and `npm test --prefix ui` check the frontend.
 `cargo test -p westplay-host -p westplay-plugin -p westplay-shared` checks the native modules.
 `cargo test -p westplay-host site_browser::tests::native_navigation_and_input -- --ignored` exercises a real
-WebView2 against a local HTTP fixture, including password editing, cross-origin input, cookies, history and
+WebView2 against a local HTTP fixture, including a shared browser PID, isolated cookies/localStorage,
+profile-scoped cookie clearing, persistent data after reopening, password editing, cross-origin input, history and
 continued, unmuted media playback when the browser is hidden and shown again.
 With `WESTPLAY_UI` pointing to the absolute `ui/dist` directory, the ignored `built_browser_controls` test
 checks the built React page and writes `browser-preview.png` into the process's temporary directory.
