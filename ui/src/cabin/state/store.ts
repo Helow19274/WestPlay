@@ -35,6 +35,7 @@ import {
 } from '../apps/youtubeMusic/youtubeMusic'
 import { useKeyboard } from '../keyboard/store'
 import { resetBrowserSessions } from '../apps/browser/session'
+import { browserSource, useBrowserMedia } from '../apps/browser/media'
 import { receiveMapFolder } from '../maps/mapData'
 import { receiveDetours, receiveFollowed, receiveRouteAnswer, receiveRoutes } from '../maps/routeChange'
 import type { Point, RouteNode } from '../maps/route'
@@ -362,6 +363,9 @@ export function connectHost(now: () => number = () => performance.now()): () => 
 function receiveHostMessage(now: () => number): (message: HostMessage) => void {
   return (message) => {
     switch (message.type) {
+      case 'browserState':
+        useBrowserMedia.setState({ [message.id]: browserSource(message.id, message.media) })
+        break
       case 'telemetry': {
         const previous = useLive.getState().telemetry
         useLive.setState({ telemetry: message.data })

@@ -49,6 +49,28 @@ pub enum Command {
     Show { x: f32, y: f32, width: u32, height: u32 },
     Zoom { factor: f64 },
     Input { event: Input },
+    Media { control: MediaControl },
+}
+
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MediaControl {
+    PlayPause,
+    Next,
+    Previous,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Media {
+    title: String,
+    artist: String,
+    album: String,
+    artwork: Option<String>,
+    playing: bool,
+    play_pause: bool,
+    next: bool,
+    previous: bool,
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
@@ -66,6 +88,13 @@ struct State {
     back: bool,
     forward: bool,
     error: Option<String>,
+    media: Option<Media>,
+    #[serde(skip)]
+    generation: u64,
+    #[serde(skip)]
+    polling: bool,
+    #[serde(skip)]
+    failed: bool,
 }
 
 /// Only web navigation, including redirects and popups. No local files, scripts, credentials or app origins.
@@ -105,13 +134,19 @@ pub struct Browser {
     focus: Rc<RefCell<Option<bool>>>,
     pub check_focus: bool,
     last_poll: Instant,
+    media_poll_started: Instant,
     sent: String,
 }
 
 impl Browser {
+    pub fn resend(&mut self) {
+        self.sent.clear();
+    }
+
     pub fn new(stage: &Stage, environment: &ICoreWebView2Environment, id: BrowserId) -> Result<Self, Error> {
         let view = OffscreenWebView::with_profile(stage, 800, 600, environment, id.profile())?;
         let core = view.core();
+        view.add_startup_script(include_str!("site_media.js"))?;
         let state = Rc::new(RefCell::new(State::default()));
         let focus = Rc::new(RefCell::new(None));
         // SAFETY: these COM objects are alive on their owning STA thread. No remote-page messaging or host objects.
@@ -134,6 +169,10 @@ impl Browser {
                     let mut s = s.borrow_mut();
                     *f.borrow_mut() = Some(false);
                     s.loading = true;
+                    s.generation += 1;
+                    s.media = None;
+                    s.polling = false;
+                    s.failed = false;
                     s.error = None;
                     s.url = uri;
                 }
@@ -195,6 +234,7 @@ impl Browser {
             focus,
             check_focus: false,
             last_poll: Instant::now() - Duration::from_secs(1),
+            media_poll_started: Instant::now(),
             sent: String::new(),
         })
     }
@@ -249,6 +289,10 @@ impl Browser {
             // the selected field, and detaches it when leaving the browser.
             Command::Input { event } => {
                 self.input(event)?;
+            }
+            Command::Media { control } => {
+                let action = serde_json::to_string(&control).unwrap();
+                self.view.run_script(&format!("window.westplaySiteMedia?.control({action})"), |_| {})?;
             }
             command => {
                 // SAFETY: the control is alive on this STA; navigation commands have no pointer arguments.
@@ -324,8 +368,45 @@ impl Browser {
         }
         self.last_poll = Instant::now();
         if self.view.take_failure().is_some() {
+            self.state.borrow_mut().generation += 1;
+            self.state.borrow_mut().media = None;
+            self.state.borrow_mut().failed = true;
             self.state.borrow_mut().error = Some("Browser stopped. Close and reopen it to try again.".into());
             self.state.borrow_mut().loading = false;
+        }
+        // ExecuteScript's error callback does not deliver a value. Recover instead of leaving polling stuck.
+        if self.state.borrow().polling && self.media_poll_started.elapsed() > Duration::from_secs(5) {
+            let mut s = self.state.borrow_mut();
+            s.generation += 1;
+            s.polling = false;
+            s.media = None;
+        }
+        if !self.state.borrow().loading && !self.state.borrow().polling && !self.state.borrow().failed {
+            self.media_poll_started = Instant::now();
+            let state = self.state.clone();
+            let generation = state.borrow().generation;
+            state.borrow_mut().polling = true;
+            if self
+                .view
+                .run_script("window.westplaySiteMedia?.read() ?? null", move |value| {
+                    let mut s = state.borrow_mut();
+                    if s.generation != generation {
+                        return;
+                    }
+                    s.polling = false;
+                    s.media = serde_json::from_str::<Option<Media>>(&value).ok().flatten().map(|mut media| {
+                        media.title = media.title.chars().take(2048).collect();
+                        media.artist = media.artist.chars().take(2048).collect();
+                        media.album = media.album.chars().take(2048).collect();
+                        media.artwork = media.artwork.and_then(|url| address(&url));
+                        media
+                    });
+                })
+                .is_err()
+            {
+                self.state.borrow_mut().polling = false;
+                self.state.borrow_mut().media = None;
+            }
         }
         // SAFETY: native properties from a live control; strings freed by CoTaskMemPWSTR.
         unsafe {
@@ -711,6 +792,25 @@ mod tests {
             )
             .unwrap();
         pump(500);
+        browser.view.evaluate("navigator.mediaSession.metadata = new MediaMetadata({title:'Fixture song',artist:'Fixture artist'}); navigator.mediaSession.setActionHandler('nexttrack', () => navigator.mediaSession.metadata = new MediaMetadata({title:'Next song'}))").unwrap();
+        browser.tick(&cabin, BrowserId::Browser);
+        pump(300);
+        assert_eq!(browser.state.borrow().media.as_ref().unwrap().title, "Fixture song");
+        assert!(browser.state.borrow().media.as_ref().unwrap().playing);
+        browser.command(Command::Hide, &stage).unwrap();
+        browser.command(Command::Media { control: MediaControl::PlayPause }, &stage).unwrap();
+        pump(300);
+        assert_eq!(browser.view.evaluate("testAudio.paused").unwrap(), "true");
+        browser.tick(&cabin, BrowserId::Browser);
+        pump(300);
+        assert!(!browser.state.borrow().media.as_ref().unwrap().playing);
+        browser.command(Command::Media { control: MediaControl::Next }, &stage).unwrap();
+        pump(300);
+        browser.tick(&cabin, BrowserId::Browser);
+        pump(300);
+        assert_eq!(browser.state.borrow().media.as_ref().unwrap().title, "Next song");
+        browser.command(Command::Media { control: MediaControl::PlayPause }, &stage).unwrap();
+        pump(300);
         for _ in 0..2 {
             assert_eq!(browser.view.evaluate("!testAudio.paused && testAudio.currentTime > 0").unwrap(), "true");
             browser.view.evaluate("window.beforeHide = testAudio.currentTime").unwrap();

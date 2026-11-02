@@ -752,6 +752,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                         if let Some(browser) = site_browsers.remove(&id) {
                             let _ = stage.remove(&browser.view);
                         }
+                        let _ = webview.post_json(&serde_json::json!({"type":"browserState","id":id,"url":"","title":"","loading":false,"back":false,"forward":false,"error":null,"media":null}).to_string());
                         continue;
                     }
                     // Queued commands must not reopen a browser after the game has exited.
@@ -786,6 +787,9 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 // The page announces itself when it (re)loads; it missed everything sent before, so send the
                 // current state again (some of it is otherwise only sent when it changes).
                 Some(PageMessage::Ready) => {
+                    for browser in site_browsers.values_mut() {
+                        browser.resend();
+                    }
                     // A page loaded anew asks again if it wants it.
                     spectrum = false;
                     cursor_told = None;

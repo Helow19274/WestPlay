@@ -4,6 +4,7 @@ import { playOrPause, useSpotifySource } from '../apps/spotify/spotify'
 import { playOrPause as playOrPauseAppleMusic, useAppleMusicSource } from '../apps/music/appleMusic'
 import { playOrPause as playOrPauseYouTubeMusic, useYouTubeMusicSource } from '../apps/youtubeMusic/youtubeMusic'
 import { type NowPlayingSource, shownSource } from './nowPlaying'
+import { controlBrowserMedia, useBrowserMedia } from '../apps/browser/media'
 
 /** What Now Playing last showed playing, kept while the screens showing it come and go (nowPlaying.ts). */
 let lastPlayed: NowPlayingSource | null = null
@@ -14,15 +15,21 @@ export function useNowPlaying() {
   const spotify = useSpotifySource()
   const appleMusic = useAppleMusicSource()
   const youtubeMusic = useYouTubeMusicSource()
+  const browser = useBrowserMedia((state) => state.browser)
+  const yandexMusic = useBrowserMedia((state) => state.yandexMusic)
   const video = useYouTube((store) => store.current)
   const videoPlaying = useYouTube((store) => store.state?.state === 1 && store.state.video === store.current?.video)
   const playing = {
+    browser: browser?.status === 'playing',
+    yandexMusic: yandexMusic?.status === 'playing',
     video: video !== null && videoPlaying,
     spotify: spotify?.source.status === 'playing',
     appleMusic: appleMusic?.source.status === 'playing',
     youtubeMusic: youtubeMusic?.source.status === 'playing',
   }
   const has = {
+    browser: Boolean(browser),
+    yandexMusic: Boolean(yandexMusic),
     video: video !== null,
     spotify: Boolean(spotify),
     appleMusic: Boolean(appleMusic),
@@ -33,7 +40,7 @@ export function useNowPlaying() {
   useEffect(() => {
     if (showing !== null && showingPlays) lastPlayed = showing
   }, [showing, showingPlays])
-  return { showing, playing, spotify, appleMusic, youtubeMusic, video }
+  return { showing, playing, spotify, appleMusic, youtubeMusic, video, browser, yandexMusic }
 }
 
 /** The track Now Playing shows, as one line of a list draws it (the Equalizer's): its title, who it's by, its
@@ -45,7 +52,7 @@ export function useNowPlayingTrack(): {
   playing: boolean
   playPause: (() => void) | null
 } | null {
-  const { showing, playing, spotify, appleMusic, youtubeMusic, video } = useNowPlaying()
+  const { showing, playing, spotify, appleMusic, youtubeMusic, video, browser, yandexMusic } = useNowPlaying()
   const music = (
     player: { source: { title: string; artist: string; controls: { playPause: boolean } }; artwork: string | null },
     playPause: () => void,
@@ -58,6 +65,13 @@ export function useNowPlayingTrack(): {
     playPause: player.source.controls.playPause ? playPause : null,
   })
   switch (showing) {
+    case 'browser':
+    case 'yandexMusic': {
+      const source = showing === 'browser' ? browser : yandexMusic
+      return source
+        ? music({ source, artwork: source.artwork }, () => controlBrowserMedia(showing, 'playPause'), playing[showing])
+        : null
+    }
     case 'video':
       return video
         ? {

@@ -100,6 +100,7 @@ export type HostMessage =
       back: boolean
       forward: boolean
       error: string | null
+      media?: BrowserMedia | null
     }
   | { type: 'browserFocus'; id: BrowserId; editable: boolean }
   | { type: 'telemetry'; data: Telemetry }
@@ -322,11 +323,23 @@ export type PageMessage =
  * host: its sign-in, a question (answered with `spotifyAnswer` and the same `id`), and the player's controls
  * (`play` with a context plays it, from `track`; without, it plays on). */
 export type BrowserCommand =
+  | { action: 'media'; control: 'playPause' | 'next' | 'previous' }
   | { action: 'navigate'; url: string }
   | { action: 'back' | 'forward' | 'reload' | 'stop' | 'hide' | 'close' }
   | { action: 'show'; x: number; y: number; width: number; height: number }
   | { action: 'zoom'; factor: number }
   | { action: 'input'; event: TypedEvent }
+
+export interface BrowserMedia {
+  title: string
+  artist: string
+  album: string
+  artwork: string | null
+  playing: boolean
+  playPause: boolean
+  next: boolean
+  previous: boolean
+}
 
 export type SpotifyCommand =
   /** Run (hidden), saying whether it's signed in (the Spotify app opened). */

@@ -1,10 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import { type NowPlayingSource, shownSource } from './nowPlaying'
 
-const none: Record<NowPlayingSource, boolean> = { video: false, spotify: false, appleMusic: false, youtubeMusic: false }
+const none: Record<NowPlayingSource, boolean> = {
+  video: false,
+  spotify: false,
+  appleMusic: false,
+  youtubeMusic: false,
+  browser: false,
+  yandexMusic: false,
+}
 const only = (...sources: NowPlayingSource[]) => ({ ...none, ...Object.fromEntries(sources.map((s) => [s, true])) })
 
 describe("the Dashboard's Now Playing", () => {
+  it('shows browser media over paused music, retains it on pause and clears it on close', () => {
+    expect(shownSource(only('browser'), only('spotify', 'browser'), 'spotify')).toBe('browser')
+    expect(shownSource(none, only('spotify', 'browser'), 'browser')).toBe('browser')
+    expect(shownSource(none, only('spotify'), 'browser')).toBe('spotify')
+    expect(shownSource(only('yandexMusic'), only('browser', 'yandexMusic'), 'browser')).toBe('yandexMusic')
+  })
   it('shows what plays, the video first when two do', () => {
     expect(shownSource(only('appleMusic'), only('video', 'appleMusic'), null)).toBe('appleMusic')
     expect(shownSource(only('video', 'appleMusic'), only('video', 'appleMusic'), null)).toBe('video')

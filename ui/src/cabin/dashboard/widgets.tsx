@@ -29,18 +29,28 @@ import { weatherView } from './weather'
 import { WeatherGlyph } from './WeatherGlyph'
 import { EMPTY, useDestinationView, useGuided } from './widgetState'
 import { cabClock } from '../../shared/host'
+import { controlBrowserMedia } from '../apps/browser/media'
 
 /**
  * Now Playing: what plays, the video YouTube plays first (VideoWidget), then the Spotify app's music, then
- * Apple Music's (the Music app), then YouTube Music's; nothing playing, what played last (nowPlaying.ts); none
+ * Apple Music's (the Music app), then YouTube Music's, then browser media; nothing playing, what played last (nowPlaying.ts); none
  * of them with anything, Not Playing. Turned off in Settings, its room goes to the others.
  */
 export function NowPlayingWidget() {
   const shown = useCabin((state) => state.dashboardWidgets.nowPlaying)
-  const { showing, spotify, appleMusic, youtubeMusic } = useNowPlaying()
+  const { showing, spotify, appleMusic, youtubeMusic, browser, yandexMusic } = useNowPlaying()
+  const webSource = showing === 'browser' ? browser : showing === 'yandexMusic' ? yandexMusic : null
   return (
     <div className={`widget-slot${shown ? ' open' : ''}`}>
       {shown && showing === 'video' && <VideoWidget />}
+      {shown && webSource && (showing === 'browser' || showing === 'yandexMusic') && (
+        <MusicWidget
+          source={webSource}
+          artwork={webSource.artwork}
+          onOpen={() => go({ type: 'openApp', app: showing })}
+          onControl={(action) => controlBrowserMedia(showing, action)}
+        />
+      )}
       {shown && showing === 'spotify' && spotify && <SpotifyWidget spotify={spotify} />}
       {shown && showing === 'appleMusic' && appleMusic && <AppleMusicWidget appleMusic={appleMusic} />}
       {shown && showing === 'youtubeMusic' && youtubeMusic && <YouTubeMusicWidget youtubeMusic={youtubeMusic} />}
