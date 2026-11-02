@@ -5,6 +5,7 @@
 
 #[macro_use]
 pub mod log;
+mod airplay;
 mod apple_music;
 pub mod browser;
 mod camera;
@@ -312,6 +313,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let mut page_height = config.height;
     let mut pointer = Pointer::new(config.width, config.height);
     let mut site_browsers = std::collections::HashMap::<site_browser::BrowserId, site_browser::Browser>::new();
+    let airplay = airplay::AirPlay::new(config.data_dir.clone())?;
     // The screen's cursor, drawn into the frames the game takes (cursor.rs), and whether the page was last told the
     // host draws it (`None`: not told since it loaded).
     let mut cursor = cursor::Cursor::new(Instant::now());
@@ -508,6 +510,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             if running != game_running {
                 game_running = running;
                 if !running {
+                    airplay.command(airplay::Command::Stop);
                     players_closing = true;
                     for (_, browser) in site_browsers.drain() {
                         let _ = stage.remove(&browser.view);
@@ -745,8 +748,24 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             part_speakers = Some(found);
         }
 
+        for state in airplay.updates() {
+            let _ = webview.post_json(&state.message());
+        }
         for message in webview.take_page_messages() {
             match parse_page_message(&message) {
+                Some(PageMessage::Airplay { command }) => {
+                    if game_running || command == airplay::Command::Stop {
+                        airplay.command(command);
+                    } else {
+                        let _ = webview.post_json(
+                            &airplay::State {
+                                error: Some("Start the game before enabling AirPlay.".into()),
+                                ..Default::default()
+                            }
+                            .message(),
+                        );
+                    }
+                }
                 Some(PageMessage::Browser { id, command }) => {
                     if matches!(command, site_browser::Command::Close) {
                         if let Some(browser) = site_browsers.remove(&id) {
@@ -787,6 +806,8 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 // The page announces itself when it (re)loads; it missed everything sent before, so send the
                 // current state again (some of it is otherwise only sent when it changes).
                 Some(PageMessage::Ready) => {
+                    // A reloaded page has lost its player: release the old phone session and audio.
+                    airplay.command(airplay::Command::Stop);
                     for browser in site_browsers.values_mut() {
                         browser.resend();
                     }
@@ -2033,6 +2054,7 @@ fn customize_list_message(customizations: &customize::Customizations) -> String 
 #[derive(Debug, PartialEq, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum PageMessage {
+    Airplay { command: airplay::Command },
     Browser {
         #[serde(default)]
         id: site_browser::BrowserId,
@@ -2074,7 +2096,11 @@ enum PageMessage {
     Typing { selection: u32 },
     /// A change to the game's route (Maps' search): at a map node (its uid in hex) to go or add a stop; `id`
     /// comes back with the game's answer (`route_change`).
-    Route { id: u32, action: PageRouteAction, node: Option<String> },
+    Route {
+        id: u32,
+        action: PageRouteAction,
+        node: Option<String>,
+    },
     /// The routes to a map node (its uid in hex) from where the truck is, to offer before Go (`planner`);
     /// `id` comes back with them.
     Routes { id: u32, node: String },

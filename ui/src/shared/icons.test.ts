@@ -7,6 +7,7 @@ const FILES = Object.keys(import.meta.glob('../../public/icons/westplay/*.svg'))
 )
 
 const ROLES: AppIconRole[] = [
+  'airplay',
   'maps',
   'music',
   'spotify',

@@ -7,6 +7,7 @@
  * light look, on WestPlay's dark card in the dark look).
  */
 export type AppIconRole =
+  | 'airplay'
   | 'browser'
   | 'maps'
   | 'music'
@@ -22,6 +23,7 @@ export type AppIconRole =
 
 /** Each role's files' name. */
 const FILES: Record<AppIconRole, string> = {
+  airplay: 'airplay',
   browser: 'browser',
   maps: 'maps',
   music: 'music',

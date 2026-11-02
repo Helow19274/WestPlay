@@ -30,6 +30,7 @@ export function isIconStyle(style: unknown): style is IconStyle {
 }
 
 const ROLES: AppIconRole[] = [
+  'airplay',
   'maps',
   'music',
   'spotify',

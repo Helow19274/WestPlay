@@ -2,6 +2,17 @@
 
 WestPlay uses or follows the work below. Each notice is reproduced as its licence requires.
 
+## AirPlay browser player
+
+The cabin bundles mpegts.js 1.8.0 (Copyright (C) 2021 magicxqq), licensed under Apache-2.0:
+<https://github.com/xqq/mpegts.js>. It includes es6-promise 4.2.8 (MIT; Copyright (c) 2014
+Yehuda Katz, Tom Dale, Stefan Penner and contributors) and webworkify-webpack 2.1.5
+(MIT; Boris Sirota, xqq fork at commit 24d1e719b4a6cac37a518b2bb10fe124527ef4ef).
+Their licence texts are included in THIRD_PARTY_LICENSES.md.
+
+UxPlay/uxplay-windows and its GStreamer runtime are supplied separately by the user;
+WestPlay does not bundle them. See docs/airplay.md for required versions and plugins.
+
 ## ts-map
 
 The layouts of the game's binary map files and of its archives (HashFS, `crates/mapdata`) follow the

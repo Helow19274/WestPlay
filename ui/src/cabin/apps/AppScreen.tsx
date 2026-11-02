@@ -14,6 +14,7 @@ import { YouTubeApp } from './youtube/YouTubeApp'
 import { WEB_APPS, type WebAppId } from '../../shared/webApps'
 import './apps.css'
 import { BrowserApp } from './browser/BrowserApp'
+import { AirPlayApp } from './airplay/AirPlayApp'
 
 /**
  * An open app: its window, which grows out of the icon that opened it and shrinks back into its Home icon
@@ -72,6 +73,8 @@ function AppContent({ app }: { app: AppId }) {
   const text = useText()
   if (Object.hasOwn(WEB_APPS, app)) return <BrowserApp key={app} id={app as WebAppId} />
   switch (app) {
+    case 'airplay':
+      return <AirPlayApp />
     case 'browser':
       return <BrowserApp />
     case 'maps':

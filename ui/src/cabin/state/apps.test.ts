@@ -11,6 +11,7 @@ describe('the apps this release has', () => {
       'youtubeMusic',
       'yandexMusic',
       'browser',
+      'airplay',
       'weather',
       'settings',
     ])

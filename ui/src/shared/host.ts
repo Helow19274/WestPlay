@@ -91,6 +91,7 @@ export interface JobInfo {
 export type KeybindAction = 'volumeUp' | 'volumeDown' | 'playPause'
 
 export type HostMessage =
+  | { type: 'airplayState'; running: boolean; url: string | null; error: string | null }
   | {
       type: 'browserState'
       id: BrowserId
@@ -278,6 +279,7 @@ export function toEqualizer(value: unknown): Equalizer {
 }
 
 export type PageMessage =
+  | { type: 'airplay'; command: { action: 'start' | 'stop' } }
   | { type: 'browser'; id: BrowserId; command: BrowserCommand }
   | { type: 'ready' }
   /** A startup stage reached (the boot screens shown), for the host's startup log. */
